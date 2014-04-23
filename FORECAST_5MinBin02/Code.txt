@@ -68,7 +68,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	//ファイル設定
 	sprintf(c01,"DATA_Input_%03d.csv",DISTANCE);
 	FI=fopen(c01,"r");
-	sprintf(c01,"FORECAST_5MinBin01_%03d.csv",DISTANCE);
+	sprintf(c01,"FORECAST_5MinBin02_%03d.csv",DISTANCE);
 	FO=fopen(c01,"w");
 	
 	//データ入出力
@@ -138,4 +138,5 @@ int _tmain(int argc, _TCHAR* argv[])
 	getchar();
 	return 0;
 }
+
 
