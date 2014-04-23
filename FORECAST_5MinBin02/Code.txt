@@ -1,0 +1,141 @@
+// FORECAST_5MinBin02.cpp : コンソール アプリケーションのエントリ ポイントを定義します。
+//
+
+#include "stdafx.h"
+#include<math.h>
+
+#define DISTANCE 430//どの距離について計算するか設定
+#define FLAG_WD 0//流入速度:0,合成速度:1
+
+#define PI 3.14159265
+
+struct BIN{
+	double WS;
+	double POWER;
+	double SD;
+	int NUM;
+};
+
+struct LIDAR{
+	double WS;
+	double WD;
+	int ERROR;
+};
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	//入出力ファイル
+	FILE *FI,*FO;
+	//ダミー変数
+	char c01[512];
+
+	//変数
+	//時系列
+	int MON,DAY,HOUR,MIN;
+	//入力	
+	////ナセル系
+	double POWER_In;
+	int ERROR_In;	
+	////LiDAR系
+	double WS_LiDAR_In,WD_LiDAR_In;
+	int ERROR_LiDAR_In;
+	int NUM_LiDARData_In;
+
+	//出力
+	////ナセル系
+	double POWER_Out;//=POWER_In
+	int ERROR_Out;//=ERROR_In
+	//LiDAR系
+	double WS_LiDAR_Out;//合成速度or流入速度で違う
+	int ERROR_LiDAR_Out;
+	double POWER_LiDAR_Out;//予測出力
+	double SD_LiDAR_Out;//予測出力誤差
+	double POWER_Max_LiDAR_Out;//予測出力最大値=POWER_LiDAR_Out+SD_LiDAR_Out
+	double POWER_Min_LiDAR_Out;//予測出力最低値=POWER_LiDAR_Out-SD_LiDAR_Out
+	int POWER_Inside;//予測の的中
+	double MAE;//絶対誤差=|POWER_Out-POWER_LiDAR_Out|/POWER_LiDAR_Out
+	double RMSE;//絶対誤差の2乗=MAE^2
+
+	//学習データ読込
+	struct BIN BIN_Data[41];
+	sprintf(c01,"5MinAveBin04_%03d.txt",DISTANCE);
+	FI=fopen(c01,"r");
+	for(int i=0;i<41;i++){
+		fscanf(FI,"%lf	%lf	%lf	%d",&BIN_Data[i].WS,&BIN_Data[i].POWER,&BIN_Data[i].SD,&BIN_Data[i].NUM);
+	}
+	fclose(FI);
+
+	//ファイル設定
+	sprintf(c01,"DATA_Input_%03d.csv",DISTANCE);
+	FI=fopen(c01,"r");
+	sprintf(c01,"FORECAST_5MinBin01_%03d.csv",DISTANCE);
+	FO=fopen(c01,"w");
+	
+	//データ入出力
+	fprintf(FO,"Date,Time,POWER,ERROR_Nacelle,WS_LiDAR,POWER_LiDAR,SD_LiDAR,ERROR_LiDAR,PowerMax,PowerMin,PowerInside,MAE,RMSE\n");
+	while((fscanf(FI,"%d/%d,%d:%d,%lf,%d,%lf,%lf,%d,%d",&MON,&DAY,&HOUR,&MIN,&POWER_In,&ERROR_In,&WS_LiDAR_In,&WD_LiDAR_In,&ERROR_LiDAR_In,&NUM_LiDARData_In))!=EOF){
+		//流入速度の処理
+		if(FLAG_WD==0){
+			WS_LiDAR_Out=WS_LiDAR_In*cos(WD_LiDAR_In*PI/180);
+		}else{
+			WS_LiDAR_Out=WS_LiDAR_In;
+		}
+
+		//LiDARのエラー設定
+		if(NUM_LiDARData_In==0){ERROR_LiDAR_Out=0;}//データ0→0
+		if(NUM_LiDARData_In>0){ERROR_LiDAR_Out=2;}//データ1以上→2
+		if(NUM_LiDARData_In==300){ERROR_LiDAR_Out=1;}//データ300→1
+		if(WS_LiDAR_Out<0){ERROR_LiDAR_Out=0;}
+		if(WS_LiDAR_Out>41){ERROR_LiDAR_Out=0;}
+
+		//予測出力計算（出力と標準偏差のみ設定）
+		if(ERROR_LiDAR_Out==0){
+			POWER_LiDAR_Out=0;
+			SD_LiDAR_Out=0;
+		}else{
+			//変数設定
+			int FLAG_Left=0;
+			int FLAG_Right=0;
+			int FLAG_WS=0;
+			//左側判定
+			FLAG_Left=(int)(WS_LiDAR_Out*2);
+			while(FLAG_Left>0&&BIN_Data[FLAG_Left].NUM==0){FLAG_Left=FLAG_Left-1;}
+			//右側判定
+			FLAG_Right=(int)((WS_LiDAR_Out*1)+1);
+			while(FLAG_Right<41&&BIN_Data[FLAG_Right].NUM==0){FLAG_Right=FLAG_Right+1;}
+			//エラー判定
+			if(FLAG_Left==0){ERROR_LiDAR_Out=0;}
+			if(FLAG_Right==41){ERROR_LiDAR_Out=0;}
+			//出力計算
+			POWER_LiDAR_Out=BIN_Data[FLAG_Left].POWER+(BIN_Data[FLAG_Right].POWER-BIN_Data[FLAG_Left].POWER)*(WS_LiDAR_Out-BIN_Data[FLAG_Left].WS)/(BIN_Data[FLAG_Right].WS-BIN_Data[FLAG_Left].WS);
+			//標準偏差
+			FLAG_WS=(int)((WS_LiDAR_Out+0.25)*2);
+			SD_LiDAR_Out=BIN_Data[FLAG_WS].SD*2;
+		}
+
+		//誤差に関する計算
+		if(ERROR_LiDAR_Out==0){
+			POWER_Max_LiDAR_Out=0;
+			POWER_Min_LiDAR_Out=0;
+			POWER_Inside=0;
+			MAE=0;
+			RMSE=0;
+		}else{
+			POWER_Max_LiDAR_Out=POWER_LiDAR_Out+SD_LiDAR_Out;
+			POWER_Min_LiDAR_Out=POWER_LiDAR_Out-SD_LiDAR_Out;
+			if(POWER_Min_LiDAR_Out<POWER_In&&POWER_In<POWER_Max_LiDAR_Out){POWER_Inside=1;}else{POWER_Inside=0;}
+			MAE=abs(POWER_In-POWER_LiDAR_Out)/POWER_LiDAR_Out;
+			RMSE=pow(MAE,2);
+		}
+
+		//出力
+		fprintf(FO,"%02d/%02d,%02d:%02d,%lf,%d,%lf,%lf,%lf,%d,%lf,%lf,%d,%lf,%lf\n",MON,DAY,HOUR,MIN,POWER_In,ERROR_In,WS_LiDAR_Out,POWER_LiDAR_Out,SD_LiDAR_Out,ERROR_LiDAR_Out,POWER_Max_LiDAR_Out,POWER_Min_LiDAR_Out,POWER_Inside,MAE,RMSE);
+		printf("%02d/%02d %02d:%02d\n",MON,DAY,HOUR,MIN);
+	}
+	fclose(FO);
+
+	printf("Program finish.\n");
+	getchar();
+	return 0;
+}
+
