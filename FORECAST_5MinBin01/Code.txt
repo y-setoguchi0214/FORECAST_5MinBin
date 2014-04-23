@@ -1,0 +1,117 @@
+// FORECAST_5MinBin01.cpp : コンソール アプリケーションのエントリ ポイントを定義します。
+//
+
+#include "stdafx.h"
+#include<math.h>
+
+#define PI 3.14159265
+
+struct BIN{
+	double WS;
+	double POWER;
+	double SD;
+	int NUM;
+};
+
+struct LIDAR{
+	double WS;
+	double WD;
+	int ERROR;
+};
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	//入出力ファイル
+	FILE *FI,*FO;
+	//ダミー変数
+	char ac[512];
+	//変数
+	double POWER_In;
+	double POWER_Out[8];
+	int ERROR_Power;
+	int ERROR_Out[8];
+	double SD_Out[8];
+	struct BIN BIN_Data[8][41];
+	struct LIDAR LIDAR_Data[8];
+	//フラグ
+	int FLAG_WS;
+	int FLAG_Complement;
+	//カウンタ
+	int COUNT_Complement=0;
+	//初期化
+		
+	//BINデータ読込
+	int FILENAME_LIDAR[8]={80,130,180,230,280,330,380,430};
+	for(int i=0;i<8;i++){
+		sprintf(ac,"5MinAveBin04_%03d.txt",FILENAME_LIDAR[i]);
+		FI=fopen(ac,"r");
+		for(int j=0;j<41;j++){
+			fscanf(FI,"%lf	%lf	%lf	%d",&BIN_Data[i][j].WS,&BIN_Data[i][j].POWER,&BIN_Data[i][j].SD,&BIN_Data[i][j].NUM);
+		}
+		fclose(FI);
+	}
+
+	//ファイル設定
+	FI=fopen("DATA_compare.csv","r");
+	FO=fopen("FORECAST_5MinBin01.txt","w");
+
+
+	//データ入力
+	while((fscanf(FI,"%lf,%d,%lf,%lf,%d,%lf,%lf,%d,%lf,%lf,%d,%lf,%lf,%d,%lf,%lf,%d,%lf,%lf,%d,%lf,%lf,%d,%lf,%lf,%d",
+		&POWER_In,&ERROR_Power,
+		&LIDAR_Data[0].WS,&LIDAR_Data[0].WD,&LIDAR_Data[0].ERROR,
+		&LIDAR_Data[1].WS,&LIDAR_Data[1].WD,&LIDAR_Data[1].ERROR,
+		&LIDAR_Data[2].WS,&LIDAR_Data[2].WD,&LIDAR_Data[2].ERROR,
+		&LIDAR_Data[3].WS,&LIDAR_Data[3].WD,&LIDAR_Data[3].ERROR,
+		&LIDAR_Data[4].WS,&LIDAR_Data[4].WD,&LIDAR_Data[4].ERROR,
+		&LIDAR_Data[5].WS,&LIDAR_Data[5].WD,&LIDAR_Data[5].ERROR,
+		&LIDAR_Data[6].WS,&LIDAR_Data[6].WD,&LIDAR_Data[6].ERROR,
+		&LIDAR_Data[7].WS,&LIDAR_Data[7].WD,&LIDAR_Data[7].ERROR))!=EOF){
+
+			//補完による計算
+			for(int i=0;i<8;i++){
+				LIDAR_Data[i].WS=LIDAR_Data[i].WS*cos(LIDAR_Data[i].WD/180*PI);
+				if(ERROR_Power!=1||LIDAR_Data[i].ERROR!=1){
+					POWER_Out[i]=0;
+					ERROR_Out[i]=0;
+					SD_Out[i]=0;
+				}else{
+					//補完計算用フラグ設定
+					int FLAG_Left=0;
+					int FLAG_Right=0;
+					int FLAG_WS=0;
+					//左側判定
+					FLAG_Left=(int)(LIDAR_Data[i].WS*2);
+					while(FLAG_Left>0&&BIN_Data[i][FLAG_Left].NUM==0){FLAG_Left=FLAG_Left-1;}
+					//右側判定
+					FLAG_Right=(int)((LIDAR_Data[i].WS*2)+1);
+					while(FLAG_Right<41&&BIN_Data[i][FLAG_Right].NUM==0){FLAG_Right=FLAG_Right+1;}
+					//エラー判定
+					if(LIDAR_Data[i].WS<0){ERROR_Out[i]=0;}
+					if(LIDAR_Data[i].WS>40){ERROR_Out[i]=0;}
+					if(FLAG_Left==0||FLAG_Right==41){POWER_Out[i]=0;ERROR_Out[i]=0;}
+					else{
+						POWER_Out[i]=BIN_Data[i][FLAG_Left].POWER+(BIN_Data[i][FLAG_Right].POWER-BIN_Data[i][FLAG_Left].POWER)*(LIDAR_Data[i].WS-BIN_Data[i][FLAG_Left].WS)/(BIN_Data[i][FLAG_Right].WS-BIN_Data[i][FLAG_Left].WS);
+						ERROR_Out[i]=1;
+					}
+					//BIN判定、標準偏差設定
+					FLAG_WS=(int)((LIDAR_Data[i].WS+0.25)*2);
+					if(FLAG_WS>41){continue;}
+					else{SD_Out[i]=BIN_Data[i][FLAG_WS].SD;}
+				}
+			}
+			
+			//データ出力
+			fprintf(FO,"%lf	%d	",POWER_In,ERROR_Power);
+			for(int i=0;i<7;i++){
+				fprintf(FO,"%lf	%lf	%d	",POWER_Out[i],SD_Out[i],ERROR_Out[i]);
+			}
+			fprintf(FO,"%lf	%lf	%d\n",POWER_Out[7],SD_Out[7],ERROR_Out[7]);
+	}
+
+	fclose(FI);
+	fclose(FO);
+
+	return 0;
+}
+
